@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "kafka-iceberg-ingest",
+    "xregistry-api"
+]
