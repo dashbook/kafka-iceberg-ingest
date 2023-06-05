@@ -13,12 +13,19 @@ pub async fn main() {
 
     configuration.base_path = schema_registry_host + "/apis/registry/v2";
 
-    let schema = Schema::parse_str(
-        &artifacts_api::get_latest_artifact(&configuration, "default", &topic, Some(true))
+    let mut json =
+        artifacts_api::get_latest_artifact(&configuration, "default", &topic, Some(true))
             .await
-            .expect("Failed to get schema of topic.")
-            .to_string(),
-    )
-    .expect("Failed to parse schema.");
+            .expect("Failed to get schema of topic.");
+
+    if let Some(serde_json::Value::Array(fields)) = json.get_mut("fields") {
+        if let Some(source) = fields.get_mut(2) {
+            if let Some(source_type) = source.get_mut("type") {
+                *source_type = serde_json::Value::String("string".to_string());
+            }
+        }
+    }
+
+    let schema = Schema::parse_str(&json.to_string()).expect("Failed to parse schema.");
     dbg!(&schema);
 }

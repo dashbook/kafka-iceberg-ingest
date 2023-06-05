@@ -460,6 +460,7 @@ version = "0.1.0"
 dependencies = [
  "apache-avro",
  "apicurio-api",
+ "serde_json",
  "tokio",
 ]
 
