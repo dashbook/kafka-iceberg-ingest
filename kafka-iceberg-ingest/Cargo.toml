@@ -10,3 +10,5 @@ tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread"] }
 apicurio-api = { path = "../apicurio-api" }
 apache-avro = "0.14.0"
 serde_json = "^1.0"
+rdkafka = "0.31.0"
+anyhow = "1.0.71"
