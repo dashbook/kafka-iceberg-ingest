@@ -2,5 +2,5 @@
 
 members = [
     "kafka-iceberg-ingest",
-    "xregistry-api"
+    "apicurio-api"
 ]
