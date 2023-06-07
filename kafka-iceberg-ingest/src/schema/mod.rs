@@ -1,4 +1,5 @@
-use apache_avro::Schema;
+use anyhow::anyhow;
+use apache_avro::{types::Record, Schema};
 use apicurio_api::apis::{artifacts_api, configuration};
 
 pub async fn get_value_schema(
@@ -62,4 +63,19 @@ pub async fn get_key_schema(
     .expect("Failed to get artifact.");
 
     Schema::parse_str(&json.to_string()).map_err(anyhow::Error::msg)
+}
+
+pub fn debezium_schema(schema: &Schema) -> Result<Schema, anyhow::Error> {
+    if let Schema::Record {
+        name: _name,
+        aliases: _aliases,
+        doc: _doc,
+        fields,
+        lookup,
+    } = schema
+    {
+        Ok(fields[*lookup.get("after").unwrap()].schema.clone())
+    } else {
+        Err(anyhow!("Failed to get debezium schema."))
+    }
 }
