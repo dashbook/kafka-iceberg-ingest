@@ -16,3 +16,5 @@ futures = "0.3.28"
 arrow = "41.0.0"
 arrow2 = { version = "0.17.2", features = ["io_avro"] }
 num-traits = "0.2.15"
+iceberg-rust = { git = "https://github.com/JanKaul/iceberg-rust.git" }
+iceberg-catalog-rest-metadata-file = { git = "https://github.com/dashbook/iceberg-catalog-rest-metadata-file.git" }

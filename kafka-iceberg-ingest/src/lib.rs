@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use apache_avro::types::Value;
 
 pub mod arrow;
+pub mod catalog;
 pub mod schema;
 
 pub fn value_to_record(

@@ -3,8 +3,10 @@ use std::{env, sync::Arc};
 use anyhow::anyhow;
 use apache_avro::{from_avro_datum, Schema};
 use futures::stream::{self, StreamExt, TryStreamExt};
+use iceberg_rust::catalog::relation::Relation;
 use kafka_iceberg_ingest::{
     arrow::avro_to_arrow_batch,
+    catalog::get_catalog,
     schema::{debezium_schema, get_value_schema},
     value_to_record,
 };
@@ -30,13 +32,41 @@ pub async fn main() {
         .parse::<bool>()
         .expect("Failed to parse arrow batch size.");
 
+    let region = env::var("REGION").expect("Region url required.");
+
+    let bucket = env::var("BUCKET").expect("Bucket url required.");
+
+    let catalog_url = env::var("CATALOG_URL").expect("Catalog url required.");
+
+    let authorization_header =
+        env::var("AUTHORIZATION_HEADER").expect("Authorization header required.");
+
+    let namespace = env::var("NAMESPACE").unwrap_or("public".to_string());
+
+    let catalog = get_catalog(&region, &bucket, &catalog_url, &authorization_header)
+        .expect("Failed to get catalog.");
+
+    let table = match catalog
+        .load_table(
+            &(namespace + "." + &topic)
+                .as_str()
+                .try_into()
+                .expect("Couldn't parse table identifier."),
+        )
+        .await
+        .expect("Failed to load table.")
+    {
+        Relation::Table(table) => table,
+        _ => panic!("Can only insert into table."),
+    };
+
     let value_schema = Arc::new(
         get_value_schema(&schema_registry_host, &group_id, &topic)
             .await
             .expect("Failed to get schema."),
     );
 
-    let table_schema = if debezium {
+    let kafka_schema = if debezium {
         Arc::new(debezium_schema(&value_schema).expect("Failed to get table schema."))
     } else {
         value_schema.clone()
@@ -66,12 +96,13 @@ pub async fn main() {
         .for_each_concurrent(None, |partition| {
             let consumer = consumer.clone();
             let value_schema = value_schema.clone();
-            let table_schema = table_schema.clone();
+            let table_schema = kafka_schema.clone();
             let topic = topic.clone();
             async move {
-                let temp = consumer
+                let partition = consumer
                     .split_partition_queue(&topic, *partition)
-                    .expect("Failed to get stream for partition {partition}")
+                    .expect("Failed to get stream for partition {partition}");
+                let temp = partition
                     .stream()
                     .map_err(|_| anyhow!("Failed to create Kafka message stream."))
                     .and_then(|message| {
@@ -117,10 +148,7 @@ pub async fn main() {
                                 values.iter().collect::<Vec<_>>().as_slice(),
                             )
                         }
-                    })
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .unwrap();
+                    });
             }
         })
         .await;
