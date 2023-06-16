@@ -4,6 +4,7 @@ use apache_avro::types::Value;
 pub mod arrow;
 pub mod catalog;
 pub mod schema;
+pub mod zipstream;
 
 pub fn value_to_record(
     value: Value,
