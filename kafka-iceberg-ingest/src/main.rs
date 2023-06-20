@@ -20,10 +20,12 @@ use iceberg_rust::{arrow::write::write_parquet_files, catalog::relation::Relatio
 use kafka_iceberg_ingest::{
     arrow::avro_to_arrow_batch,
     catalog::get_catalog,
+    openid::get_tokens,
     schema::{debezium_schema, get_value_schema},
     value_to_record,
     zipstream::ZipStream,
 };
+use openidconnect::OAuth2TokenResponse;
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     ClientConfig, Message,
@@ -34,22 +36,9 @@ pub async fn main() {
     let topic = env::var("TOPIC").expect("No topic is specified.");
     let broker = env::var("BROKER").expect("No broker is specified.");
     let group_id = env::var("GROUP_ID").unwrap_or("default".to_string());
-    let arrow_batch_size = env::var("ARROW_BATCH_SIZE")
-        .unwrap_or("8192".to_string())
-        .parse::<usize>()
-        .expect("Failed to parse arrow batch size.");
+
     let schema_registry_host =
         env::var("SCHEMA_REGISTRY_HOST").unwrap_or("http://localhost".to_string());
-    let debezium = env::var("DEBEZIUM")
-        .unwrap_or("true".to_string())
-        .to_lowercase()
-        .parse::<bool>()
-        .expect("Failed to parse arrow batch size.");
-
-    let latency = env::var("LATENCY")
-        .unwrap_or("3600".to_string())
-        .parse::<u64>()
-        .expect("Failed to parse arrow batch size.");
 
     let region = env::var("REGION").expect("Region url required.");
 
@@ -57,12 +46,35 @@ pub async fn main() {
 
     let catalog_url = env::var("CATALOG_URL").expect("Catalog url required.");
 
-    let authorization_header =
-        env::var("AUTHORIZATION_HEADER").expect("Authorization header required.");
-
     let namespace = env::var("NAMESPACE").unwrap_or("public".to_string());
 
-    let catalog = get_catalog(&region, &bucket, &catalog_url, &authorization_header)
+    let identity_issuer = env::var("IDENTITY_ISSUER").expect("Identity provider required.");
+
+    let client_id = env::var("CLIENT_ID").expect("Identity provider required.");
+
+    let debezium = env::var("DEBEZIUM")
+        .unwrap_or("true".to_string())
+        .to_lowercase()
+        .parse::<bool>()
+        .expect("Failed to parse arrow batch size.");
+
+    let arrow_batch_size = env::var("ARROW_BATCH_SIZE")
+        .unwrap_or("8192".to_string())
+        .parse::<usize>()
+        .expect("Failed to parse arrow batch size.");
+
+    let latency = env::var("LATENCY")
+        .unwrap_or("3600".to_string())
+        .parse::<u64>()
+        .expect("Failed to parse arrow batch size.");
+
+    let tokens = get_tokens(&identity_issuer, &client_id)
+        .await
+        .expect("Failed to get identity tokens");
+
+    let access_token = tokens.access_token();
+
+    let catalog = get_catalog(&region, &bucket, &catalog_url, &access_token.secret())
         .expect("Failed to get catalog.");
 
     let value_schema = Arc::new(

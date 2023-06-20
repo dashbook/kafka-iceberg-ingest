@@ -17,3 +17,4 @@ arrow = "40.0.0"
 num-traits = "0.2.15"
 iceberg-rust = { git = "https://github.com/JanKaul/iceberg-rust.git" }
 iceberg-catalog-rest-metadata-file = { git = "https://github.com/dashbook/iceberg-catalog-rest-metadata-file.git" }
+openidconnect = "3.2.0"
