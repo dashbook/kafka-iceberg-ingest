@@ -16,7 +16,10 @@ use futures::{
     stream::{self, StreamExt, TryStreamExt},
     SinkExt, Stream,
 };
-use iceberg_rust::{arrow::write::write_parquet_files, catalog::relation::Relation};
+use iceberg_rust::{
+    arrow::write::write_parquet_files,
+    catalog::{identifier::Identifier, relation::Relation},
+};
 use kafka_iceberg_ingest::{
     arrow::avro_to_arrow_batch,
     catalog::get_catalog,
@@ -38,19 +41,19 @@ pub async fn main() {
     let group_id = env::var("GROUP_ID").unwrap_or("default".to_string());
 
     let schema_registry_host =
-        env::var("SCHEMA_REGISTRY_HOST").unwrap_or("http://localhost".to_string());
+        env::var("SCHEMA_REGISTRY").unwrap_or("http://localhost".to_string());
 
-    let region = env::var("REGION").expect("Region url required.");
+    let region = env::var("REGION").expect("Region required.");
 
-    let bucket = env::var("BUCKET").expect("Bucket url required.");
+    let bucket = env::var("BUCKET").expect("Bucket required.");
 
-    let catalog_url = env::var("CATALOG_URL").expect("Catalog url required.");
-
-    let namespace = env::var("NAMESPACE").unwrap_or("public".to_string());
+    let catalog_url = env::var("CATALOG").expect("Catalog url required.");
 
     let identity_issuer = env::var("IDENTITY_ISSUER").expect("Identity provider required.");
 
     let client_id = env::var("CLIENT_ID").expect("Identity provider required.");
+
+    let role = env::var("ROLE").expect("No role for object_store access is provided.");
 
     let debezium = env::var("DEBEZIUM")
         .unwrap_or("true".to_string())
@@ -72,9 +75,10 @@ pub async fn main() {
         .await
         .expect("Failed to get identity tokens");
 
-    let access_token = tokens.access_token();
+    let access_token = tokens.access_token().secret();
 
-    let catalog = get_catalog(&region, &bucket, &catalog_url, &access_token.secret())
+    let catalog = get_catalog(&region, &bucket, &catalog_url, access_token, &role)
+        .await
         .expect("Failed to get catalog.");
 
     let value_schema = Arc::new(
@@ -130,32 +134,33 @@ pub async fn main() {
         .unzip();
 
     stream::iter(partition_senders.into_iter())
-        .for_each_concurrent(None, |(partition, mut partition_sender)| {
+        .map(Ok::<_, anyhow::Error>)
+        .try_for_each_concurrent(None, |(partition, mut partition_sender)| {
             let consumer = consumer.clone();
             let value_schema = value_schema.clone();
             let topic = topic.clone();
             async move {
                 let last_sync = Arc::new(AtomicU64::new(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Failed to get current time.")
-                        .as_secs(),
+                    SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
                 ));
 
+                println!("Partition: {}", &partition);
+
                 let (sender, reciever) = unbounded();
-                partition_sender
-                    .send(Box::pin(reciever))
-                    .await
-                    .expect("Failed to send message to partition stream.");
+                partition_sender.send(Box::pin(reciever)).await?;
                 let partition = consumer
                     .split_partition_queue(&topic, partition)
-                    .expect("Failed to get stream for partition {partition}");
+                    .ok_or_else(|| {
+                        anyhow!("Failed to split Kafka consumer into partition streams.")
+                    })?;
+
                 partition
                     .stream()
                     .map_err(|_| anyhow!("Failed to create Kafka message stream."))
                     .and_then(|message| {
                         let value_schema = value_schema.clone();
                         async move {
+                            println!("{:?}", message);
                             match message.payload() {
                                 Some(bytes) => {
                                     let value = from_avro_datum(
@@ -180,6 +185,7 @@ pub async fn main() {
                                     } else {
                                         value_to_record(value, None)?
                                     };
+                                    println!("{:?}", &record);
                                     Ok(record)
                                 }
                                 None => Err(anyhow!("Message contains no payload.")),
@@ -205,6 +211,7 @@ pub async fn main() {
                                     }
                                 },
                             );
+                            println!("Update: {}", &update.unwrap());
                             let mut sender = if update.is_ok() {
                                 sender?.close_channel();
                                 let (new_sender, new_reciever) = unbounded();
@@ -217,41 +224,36 @@ pub async fn main() {
                             Ok(sender)
                         }
                     })
-                    .await
-                    .expect("Failed to split input stream into multiple streams.")
+                    .await?
                     .close_channel();
+                Ok(())
             }
         })
-        .await;
+        .await
+        .expect("Failed to fetch partition data.");
 
     ZipStream::new(partition_recievers)
-        .for_each_concurrent(None, |streams| {
+        .map(Ok::<_, anyhow::Error>)
+        .try_for_each_concurrent(None, |streams| {
             let catalog = catalog.clone();
-            let namespace = namespace.clone();
             let topic = topic.clone();
             let kafka_schema = kafka_schema.clone();
             async move {
+                let ident = topic
+                    .split(".")
+                    .skip(1)
+                    .map(|x| x.to_owned())
+                    .collect::<Vec<String>>();
                 let mut table = match catalog
-                    .load_table(
-                        &(namespace + "." + &topic)
-                            .as_str()
-                            .try_into()
-                            .expect("Couldn't parse table identifier."),
-                    )
-                    .await
-                    .expect("Failed to load table.")
+                    .load_table(&Identifier::try_new(&ident).unwrap())
+                    .await?
                 {
                     Relation::Table(table) => table,
                     _ => panic!("Can only insert into table."),
                 };
                 let metadata = table.metadata();
                 let location = metadata.location();
-                let schema: Arc<ArrowSchema> = Arc::new(
-                    metadata
-                        .current_schema()
-                        .try_into()
-                        .expect("Failed to convert schema to arrow."),
-                );
+                let schema: Arc<ArrowSchema> = Arc::new(metadata.current_schema().try_into()?);
                 let object_store = table.object_store();
 
                 let files = Box::pin(stream::iter(streams.into_iter()).then(|stream| {
@@ -280,16 +282,11 @@ pub async fn main() {
                     }
                 }))
                 .try_concat()
-                .await
-                .expect("Failed to write parquet files.");
+                .await?;
 
-                table
-                    .new_transaction()
-                    .append(files)
-                    .commit()
-                    .await
-                    .expect("Failed to perform table update.")
+                table.new_transaction().append(files).commit().await
             }
         })
-        .await;
+        .await
+        .expect("Failed to write data.");
 }

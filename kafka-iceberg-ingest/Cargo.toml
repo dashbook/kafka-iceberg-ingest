@@ -3,6 +3,10 @@ name = "kafka-iceberg-ingest"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["aws"]
+aws = ["aws-config", "aws-sdk-sts"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -18,3 +22,5 @@ num-traits = "0.2.15"
 iceberg-rust = { git = "https://github.com/JanKaul/iceberg-rust.git" }
 iceberg-catalog-rest-metadata-file = { git = "https://github.com/dashbook/iceberg-catalog-rest-metadata-file.git" }
 openidconnect = "3.2.0"
+aws-sdk-sts = { version = "0.28.0", optional = true }
+aws-config = { version = "0.55.3", optional = true }

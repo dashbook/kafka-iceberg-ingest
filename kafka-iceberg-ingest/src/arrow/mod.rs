@@ -73,47 +73,6 @@ pub fn avro_to_arrow_batch(
     RecordBatch::try_new(schema, columns).map_err(anyhow::Error::msg)
 }
 
-// /// Read the next batch of records
-// pub fn next_batch(batch_size: usize) -> Option<ArrowResult<RecordBatch>> {
-//     let rows_result = self
-//         .reader
-//         .by_ref()
-//         .take(batch_size)
-//         .map(|value| match value {
-//             Ok(Value::Record(v)) => Ok(v),
-//             Err(e) => Err(ArrowError::ParseError(format!(
-//                 "Failed to parse avro value: {e:?}"
-//             ))),
-//             other => Err(ArrowError::ParseError(format!(
-//                 "Row needs to be of type object, got: {other:?}"
-//             ))),
-//         })
-//         .collect::<ArrowResult<Vec<Vec<(String, Value)>>>>();
-
-//     let rows = match rows_result {
-//         // Return error early
-//         Err(e) => return Some(Err(e)),
-//         // No rows: return None early
-//         Ok(rows) if rows.is_empty() => return None,
-//         Ok(rows) => rows,
-//     };
-
-//     let rows = rows.iter().collect::<Vec<&Vec<(String, Value)>>>();
-//     let projection = self.projection.clone().unwrap_or_default();
-//     let arrays = self.build_struct_array(&rows, self.schema.fields(), &projection);
-//     let projected_fields = if projection.is_empty() {
-//         self.schema.fields().clone()
-//     } else {
-//         projection
-//             .iter()
-//             .filter_map(|name| self.schema.column_with_name(name))
-//             .map(|(_, field)| field.clone())
-//             .collect()
-//     };
-//     let projected_schema = Arc::new(Schema::new(projected_fields));
-//     Some(arrays.and_then(|arr| RecordBatch::try_new(projected_schema, arr)))
-// }
-
 fn build_boolean_array(
     lookup: &BTreeMap<String, usize>,
     rows: RecordSlice,

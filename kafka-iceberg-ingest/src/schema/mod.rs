@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use apache_avro::{types::Record, Schema};
+use apache_avro::Schema;
 use apicurio_api::apis::{artifacts_api, configuration};
 
 pub async fn get_value_schema(

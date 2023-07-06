@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use anyhow::anyhow;
 use apache_avro::types::Value;
-use iceberg_rust::catalog::Catalog;
 
 pub mod arrow;
 pub mod catalog;
