@@ -156,11 +156,11 @@ pub async fn main() {
 
                 partition
                     .stream()
-                    .map_err(|_| anyhow!("Failed to create Kafka message stream."))
+                    .map_err(anyhow::Error::msg)
                     .and_then(|message| {
                         let value_schema = value_schema.clone();
                         async move {
-                            println!("{:?}", message);
+                            println!("{:?}", &message);
                             match message.payload() {
                                 Some(bytes) => {
                                     let value = from_avro_datum(
